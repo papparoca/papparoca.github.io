@@ -2282,7 +2282,7 @@
           Ligado. Cada mudança é guardada na nuvem ~1s depois. Ao abrir a app (ou voltar a ela) noutro aparelho, os dados aparecem sozinhos.
         </div>
         <div class="action-stack" style="margin-top:14px;">
-          <button class="btn btn-ghost" onclick="cloudPull(false);showToast('Buscado da nuvem.');">Buscar da nuvem agora</button>
+          <button class="btn btn-ghost" onclick="cloudPull(false,true);showToast('Buscado da nuvem.');">Buscar da nuvem agora</button>
         </div>
         <div class="modal-actions" style="margin-top:16px;">
           <button class="btn btn-ghost" style="color:var(--danger);border-color:var(--danger);" onclick="cloudForgetToken()">Apagar token deste aparelho</button>
@@ -2564,7 +2564,7 @@
     const GIST_FILE   = 'papparoca_state.json';
     const GIST_META_KEY = 'papparoca_gist_meta';   // { gistId }
     const CLOUD_PUSH_DEBOUNCE_MS = 1200;
-    const CLOUD_POLL_MS = 15000;
+    const CLOUD_POLL_MS = 10000;
 
     let cloudGistId = null;       // id do gist em uso (lido do meta)
     let cloudPollTimer = null;
@@ -2652,24 +2652,30 @@
       });
     }
 
-    /* ---------- pull (silencioso, substitui se mais recente) ---------- */
-    function cloudPull(quiet) {
+    /* ---------- pull (silencioso, a nuvem ganha SEMPRE) ---------- */
+    // Cloud-first: a nuvem é a fonte de verdade. Se a versão da nuvem
+    // for diferente da última que vimos, substitui o estado local.
+    // Só há anti-loop (não reaplicar o que acabámos de pushar).
+    function cloudPull(quiet, force) {
       if (!cloudGistId) return Promise.resolve();
+      // Se há push pendente (edições locais por sair), NÃO pullar agora —
+      // as edições locais vão para a nuvem dentro de ~1s e depois pullamos.
+      // force=true ignora isto (usado no boot, em que ainda não há edições).
+      if (!force && (cloudPushing || cloudPushTimer)) return Promise.resolve();
       return cloudRead(cloudGistId).then(function (incoming) {
         if (!incoming) return;
         const incTs = incoming._updatedAt || 0;
-        if (incTs && incTs === cloudLastSeenTs) return;       // sem mudanças
-        const locTs = state._updatedAt || 0;
-        if (incTs && incTs <= locTs) return;                   // local é mais recente
-        // A NUVEL É A FONTE DE VERDADE: substitui totalmente.
+        if (incTs && incTs === cloudLastSeenTs) return;       // anti-loop: já vimos esta versão
+        // A NUVEM É A FONTE DE VERDADE: substitui totalmente o local.
         state = Object.assign(defaultState(), incoming);
         if (!state.viewMode) state.viewMode = detectDeviceViewMode();
         if (state.hydrationDate !== todayStr()) { state.hydrationDate = todayStr(); state.drinksToday = []; }
         if (!Array.isArray(state.weightLogs)) state.weightLogs = [];
+        if (!Array.isArray(state.history)) state.history = [];
         cloudLastSeenTs = incTs;
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
         if (typeof renderAll === 'function') renderAll();
-        cloudSetStatus('ok', 'Ligado à nuvem');
+        if (!quiet) cloudSetStatus('ok', 'Ligado à nuvem');
       }).catch(function (e) {
         if (!quiet) cloudSetStatus('err', String(e.message || e));
       });
@@ -2754,7 +2760,7 @@
       const meta = cloudMeta();
       if (meta && meta.gistId) {
         cloudGistId = meta.gistId;
-        cloudPull(false).then(function () {
+        cloudPull(false, true).then(function () {
           cloudReady = true;
           cloudStartPolling();
           cloudUpdateBtn();
@@ -2768,7 +2774,7 @@
         if (id) {
           cloudGistId = id;
           saveCloudMeta({ gistId: id });
-          return cloudPull(false).then(function () {
+          return cloudPull(false, true).then(function () {
             cloudReady = true; cloudStartPolling(); cloudUpdateBtn(); cloudRefreshModal();
           });
         }
