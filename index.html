@@ -2129,6 +2129,7 @@
     <button class="pill-btn sync-off" id="btnSync" onclick="openModal('syncModal')">
       <span class="sync-dot"></span><span id="syncBtnLabel">Nuvem</span>
     </button>
+    <span style="margin-left:auto;font-size:0.6rem;color:var(--muted);opacity:.5;align-self:center;letter-spacing:.05em;" title="Versão da app (muda a cada update). Se o número não mudar após um refresh, o navegador está a servir a versão em cache — faz Ctrl+Shift+R (recarga dura).">v3</span>
   </div>
 
   <!-- Modal: Escolher como Quebrar Jejum (2 opções) -->
@@ -2706,11 +2707,22 @@
         .finally(function () { cloudPushing = false; });
     }
 
-    /* ---------- polling + foco ---------- */
+    /* ---------- pull só ao abrir / ganhar foco (sem polling) ---------- */
+    // Cloud-first: a nuvem só é lida quando alguém realmente olha para a
+    // app — ao abrir (boot) e ao voltar à app (visibilitychange). Sem
+    // polling de fundo: zero chamadas à API quando a app está parada.
     function cloudStartPolling() {
-      if (cloudPollTimer) clearInterval(cloudPollTimer);
-      cloudPull(true);
-      cloudPollTimer = setInterval(function () { cloudPull(true); }, CLOUD_POLL_MS);
+      // mantém só o pull de foco; sem setInterval
+      cloudPull(true, true);
+      if (!window.__cloudFocusBound) {
+        window.__cloudFocusBound = true;
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden && cloudGistId) cloudPull(true);
+        });
+        window.addEventListener('focus', function () {
+          if (cloudGistId) cloudPull(true);
+        });
+      }
     }
 
     /* ---------- status + botão ---------- */
