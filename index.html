@@ -2127,7 +2127,7 @@
   <div class="footer-bar">
     <button class="pill-btn" onclick="openModal('backupModal')">Backup (.json)</button>
     <button class="pill-btn sync-off" id="btnSync" onclick="openModal('syncModal')">
-      <span class="sync-dot"></span><span id="syncBtnLabel">Sincronizar</span>
+      <span class="sync-dot"></span><span id="syncBtnLabel">Nuvem</span>
     </button>
   </div>
 
@@ -2264,73 +2264,51 @@
     </div>
   </div>
 
-  <!-- Modal: Sincronização entre dispositivos (GitHub Gist) -->
+  <!-- Modal: Nuvem (GitHub Gist) -->
   <div class="modal-backdrop" id="syncModal">
     <div class="modal">
-      <h3>Sincronizar telefone ↔ PC</h3>
+      <h3>Nuvem</h3>
       <p style="font-size: 0.82rem; color: var(--muted); margin-bottom: 14px;">
-        Os teus dados viajam por um ficheiro privado no GitHub. Não precisas de copiar códigos — basta dizer, em cada aparelho, se este aparelho é que tem os dados certos, ou se é para ele receber.
+        A nuvem é a <b>única fonte de verdade</b>. O que vês aqui é o que está na nuvem; cada mudança que fazes vai para lá automaticamente. Abrir a app noutro aparelho = vê o mesmo.
       </p>
 
-      <!-- Estado: já ligado -->
+      <!-- Estado: ligado à nuvem -->
       <div id="syncActivePane" style="display:none;">
         <div class="sync-status ok" id="syncStatus">
           <span class="dot"></span>
           <span id="syncStatusText">A ligar…</span>
         </div>
-        <div class="action-stack" style="margin-bottom: 12px;">
-          <button class="btn btn-primary" onclick="syncPushNow()">Forçar envio deste aparelho</button>
-          <button class="btn btn-ghost" onclick="syncPullNow()">Buscar da nuvem agora</button>
+        <div class="sync-hint" style="margin-top:14px;">
+          Ligado. Cada mudança é guardada na nuvem ~1s depois. Ao abrir a app (ou voltar a ela) noutro aparelho, os dados aparecem sozinhos.
         </div>
-        <div class="modal-actions">
-          <button class="btn btn-ghost" style="color:var(--danger);border-color:var(--danger);" onclick="leaveSyncRoom()">Desligar</button>
+        <div class="action-stack" style="margin-top:14px;">
+          <button class="btn btn-ghost" onclick="cloudPull(false);showToast('Buscado da nuvem.');">Buscar da nuvem agora</button>
+        </div>
+        <div class="modal-actions" style="margin-top:16px;">
+          <button class="btn btn-ghost" style="color:var(--danger);border-color:var(--danger);" onclick="cloudForgetToken()">Apagar token deste aparelho</button>
           <button class="btn btn-ghost" onclick="closeModal('syncModal')">Fechar</button>
         </div>
       </div>
 
-      <!-- Estado: ainda não ligado -->
+      <!-- Estado: ainda sem token -->
       <div id="syncSetupPane">
-
-        <!-- Sub-painel: ainda sem token colado -->
         <div id="syncTokenPane">
           <div class="sync-hint" style="margin-top:4px;">
-            Para sincronizar entre aparelhos, colem aqui o teu <b>token do GitHub</b> (cria um em github.com/settings/tokens, marca a caixa <b>gist</b>). O token fica guardado <b>só neste aparelho</b> (no navegador) e nunca é enviado para o GitHub dentro da app.
+            Para guardar os teus dados na nuvem, cola aqui o teu <b>token do GitHub</b> (cria um em <b>github.com/settings/tokens</b> → Generate new token (classic) → marca a caixa <b>gist</b>). O token fica guardado <b>só neste aparelho</b> (no navegador).
+          </div>
+          <div class="sync-hint" style="margin-top:10px;font-size:.78rem;color:var(--muted);">
+            <b>Para os teus amigos usarem a app:</b> cada um cria o seu próprio token GitHub e cola-o na app — assim cada um tem a sua própria nuvem privada, separada das dos outros. A app é a mesma; o token é que separa.
           </div>
           <input id="syncTokenInput" type="password" placeholder="ghp_..." autocomplete="off"
                  style="width:100%;margin-top:12px;padding:12px 14px;font-size:.95rem;
                         font-family:var(--font-mono,monospace);background:var(--card);
                         color:var(--text);border:1px solid var(--border);border-radius:10px;">
           <button class="btn btn-primary" style="width:100%;margin-top:10px;"
-                  onclick="saveSyncToken()">Guardar token</button>
+                  onclick="cloudSaveToken()">Ligar à nuvem</button>
         </div>
-
-        <!-- Sub-painel: token colado, escolher papel -->
-        <div id="syncRolePane" style="display:none;">
-          <div class="sync-hint" style="margin-top:4px;">
-            Token guardado. Em cada aparelho, escolhe <b>uma</b> das opções abaixo. Começa pelo aparelho que tem os <b>dados bons</b>.
-          </div>
-          <div class="action-stack" style="margin-top:14px;">
-            <button class="btn btn-primary" style="width:100%;padding:16px;font-size:1rem;" onclick="syncISource()">
-              ✅ Este aparelho tem os dados bons<br>
-              <span style="font-size:.78rem;font-weight:400;opacity:.85;">Envia os dados deste aparelho para a nuvem</span>
-            </button>
-            <button class="btn btn-ghost" style="width:100%;padding:16px;font-size:1rem;" onclick="syncIReceive()">
-              ⬇️ Este aparelho vai receber da nuvem<br>
-              <span style="font-size:.78rem;font-weight:400;opacity:.85;">Substitui os dados deste aparelho pelos que estão na nuvem</span>
-            </button>
-          </div>
-          <div class="sync-detail">
-            <b>Como fazer (passo a passo):</b><br>
-            1. No aparelho que tem os dados certos (ex.: telemóvel), carrega em <b>"✅ Este aparelho tem os dados bons"</b>.<br>
-            2. No outro aparelho (ex.: PC), carrega em <b>"⬇️ Este aparelho vai receber da nuvem"</b>.<br>
-            3. Pronto. A partir daí, qualquer mudança num aparelho aparece no outro.
-          </div>
-          <button class="btn btn-ghost" style="width:100%;margin-top:10px;color:var(--muted);font-size:.82rem;"
-                  onclick="forgetSyncToken()">Apagar token deste aparelho</button>
-        </div>
-
       </div>
     </div>
+  </div>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -2566,28 +2544,47 @@
     /* Token NÃO embutido no ficheiro — o GitHub revoga automaticamente
      *  qualquer token que apareça em ficheiros hospedados lá (mesmo em
      *  base64, ele descodifica e revoga). O utilizador cola o token UMA
-     *  vez em cada aparelho, no modal de Sincronizar; fica guardado no
+     *  vez em cada aparelho, no modal de Nuvem; fica guardado no
      *  localStorage deste aparelho (chave papparoca_gist_token) e só é
      *  usado em memória para os pedidos à API. Nunca vai para o GitHub
-     *  dentro do index.html. */
+     *  dentro do index.html.
+     *
+     *  ARQUITECTURA CLOUD-FIRST (a nuvem é a fonte de verdade):
+     *  - Abrir a app / ganhar foco -> lê o gist silenciosamente.
+     *    Se o gist for mais recente que o estado local, substitui e
+     *    faz renderAll. O que está na nuvem é o que se vê.
+     *  - Qualquer alteração local -> saveState() escreve no localStorage
+     *    (instantâneo) e agenda um push para o gist (debounced 1.2s).
+     *  - Não há botões de "sincronizar", nem "este aparelho tem os dados
+     *    bons", nem painéis de setup. A nuvem é a única fonte de verdade.
+     *  - Amigos: cada um cola o SEU token GitHub -> cria o SEU gist
+     *    privado -> vê só os SEUS dados. A app é a mesma; o token separa. */
     const GIST_TOKEN_KEY = 'papparoca_gist_token';
-    function getGistToken() { return (localStorage.getItem(GIST_TOKEN_KEY) || '').trim(); }
-    const GIST_DESC   = 'papparoca-sync-do-not-delete';
+    const GIST_DESC   = 'papparoca-cloud-do-not-delete';
     const GIST_FILE   = 'papparoca_state.json';
-    const SYNC_META_KEY = 'papparoca_sync_meta';   // { gistId, lastSeenTs, role }
-    const SYNC_PUB_DEBOUNCE_MS = 1500;
-    const SYNC_POLL_MS = 20000;
+    const GIST_META_KEY = 'papparoca_gist_meta';   // { gistId }
+    const CLOUD_PUSH_DEBOUNCE_MS = 1200;
+    const CLOUD_POLL_MS = 15000;
 
-    let syncMeta = null;
-    let syncPollTimer = null;
-    let syncPublishTimer = null;
-    let syncPublishing = false;
-    let syncLastSeenTs = 0;
-    let syncReady = false;
+    let cloudGistId = null;       // id do gist em uso (lido do meta)
+    let cloudPollTimer = null;
+    let cloudPushTimer = null;
+    let cloudPushing = false;
+    let cloudLastSeenTs = 0;     // _updatedAt da última versão que vimos da nuvem
+    let cloudReady = false;
 
-    /* ---------- helpers ---------- */
-    function syncNowTs() { return Date.now(); }
-    function gistHeaders(json) {
+    function getGistToken() { return (localStorage.getItem(GIST_TOKEN_KEY) || '').trim(); }
+    function cloudMeta() {
+      try { return JSON.parse(localStorage.getItem(GIST_META_KEY) || 'null'); }
+      catch (e) { return null; }
+    }
+    function saveCloudMeta(m) {
+      try {
+        if (m) localStorage.setItem(GIST_META_KEY, JSON.stringify(m));
+        else localStorage.removeItem(GIST_META_KEY);
+      } catch (e) {}
+    }
+    function cloudHeaders(json) {
       const h = {
         'Authorization': 'Bearer ' + getGistToken(),
         'Accept': 'application/vnd.github+json',
@@ -2596,52 +2593,17 @@
       if (json) h['Content-Type'] = 'application/json';
       return h;
     }
-    function syncErrText(status) {
+    function cloudErrText(status) {
       if (status === 401 || status === 403) return 'Token sem permissão ou inválido.';
-      if (status === 404) return 'Sala não encontrada.';
+      if (status === 404) return 'Gist não encontrado.';
       return 'Erro GitHub (HTTP ' + status + ')';
     }
-    function loadSyncMeta() {
-      try { return JSON.parse(localStorage.getItem(SYNC_META_KEY) || 'null'); }
-      catch (e) { return null; }
-    }
-    function saveSyncMeta(m) {
-      try {
-        if (m) localStorage.setItem(SYNC_META_KEY, JSON.stringify(m));
-        else localStorage.removeItem(SYNC_META_KEY);
-      } catch (e) {}
-    }
-    function syncSetStatus(kind, text) {
-      const el = document.getElementById('syncStatus');
-      const tx = document.getElementById('syncStatusText');
-      if (el) el.className = 'sync-status ' + (kind || '');
-      if (tx) tx.textContent = text || '';
-    }
-    function syncUpdateBtn() {
-      const btn = document.getElementById('btnSync');
-      const lab = document.getElementById('syncBtnLabel');
-      if (!btn || !lab) return;
-      btn.className = 'pill-btn';
-      if (!syncMeta || !syncMeta.gistId) {
-        lab.textContent = 'Sincronizar';
-        btn.classList.add('sync-off');
-      } else if (syncReady) {
-        lab.textContent = 'Sinc OK';
-        btn.classList.add('sync-on');
-      } else {
-        lab.textContent = 'Sinc…';
-        btn.classList.add('sync-pending');
-      }
-    }
 
-    /* ---------- descobrir o Gist de sincronização ----------
-       Procuramos nos gists do utilizador aquele cuja descrição é
-       exatamente GIST_DESC. Se não existir, devolvemos null. */
-    function findSyncGist() {
-      // por página, normalmente 1 página chega
-      return fetch(GIST_API + '?per_page=100', { headers: gistHeaders(false) })
+    /* ---------- descobrir / criar o Gist ---------- */
+    function cloudFindGist() {
+      return fetch(GIST_API + '?per_page=100', { headers: cloudHeaders(false) })
         .then(function (r) {
-          if (!r.ok) throw new Error(syncErrText(r.status));
+          if (!r.ok) throw new Error(cloudErrText(r.status));
           return r.json();
         })
         .then(function (list) {
@@ -2651,21 +2613,14 @@
           return null;
         });
     }
-    function createSyncGist() {
-      state._updatedAt = syncNowTs();
-      syncLastSeenTs = state._updatedAt;
-      const payload = {
-        description: GIST_DESC,
-        public: false,
-        files: {}
-      };
+    function cloudCreateGist() {
+      state._updatedAt = Date.now();
+      const payload = { description: GIST_DESC, public: false, files: {} };
       payload.files[GIST_FILE] = { content: JSON.stringify(state, null, 2) };
       return fetch(GIST_API, {
-        method: 'POST',
-        headers: gistHeaders(true),
-        body: JSON.stringify(payload)
+        method: 'POST', headers: cloudHeaders(true), body: JSON.stringify(payload)
       }).then(function (r) {
-        if (!r.ok) throw new Error(syncErrText(r.status));
+        if (!r.ok) throw new Error(cloudErrText(r.status));
         return r.json();
       }).then(function (data) {
         if (!data || !data.id) throw new Error('GitHub não devolveu o ID.');
@@ -2673,11 +2628,11 @@
       });
     }
 
-    /* ---------- leitura do Gist ---------- */
-    function readGistContent(gistId) {
-      return fetch(GIST_API + '/' + gistId, { headers: gistHeaders(false) })
+    /* ---------- ler / escrever o Gist ---------- */
+    function cloudRead(gistId) {
+      return fetch(GIST_API + '/' + gistId, { headers: cloudHeaders(false) })
         .then(function (r) {
-          if (!r.ok) throw new Error(syncErrText(r.status));
+          if (!r.ok) throw new Error(cloudErrText(r.status));
           return r.json();
         })
         .then(function (data) {
@@ -2686,283 +2641,200 @@
           try { return JSON.parse(f.content); } catch (e) { return null; }
         });
     }
-
-    /* ---------- escrita no Gist ---------- */
-    function writeGist(gistId, content) {
+    function cloudWrite(gistId, content) {
       const payload = { description: GIST_DESC, files: {} };
       payload.files[GIST_FILE] = { content: JSON.stringify(content, null, 2) };
       return fetch(GIST_API + '/' + gistId, {
-        method: 'PATCH',
-        headers: gistHeaders(true),
-        body: JSON.stringify(payload)
+        method: 'PATCH', headers: cloudHeaders(true), body: JSON.stringify(payload)
       }).then(function (r) {
-        if (!r.ok) throw new Error(syncErrText(r.status));
+        if (!r.ok) throw new Error(cloudErrText(r.status));
         return r.json();
       });
     }
 
-    /* ---------- publish (debounced, merge-friendly) ---------- */
-    function syncPublish() {
-      if (!syncMeta || !syncMeta.gistId) return;
-      if (syncPublishing) return;
-      if (syncPublishTimer) clearTimeout(syncPublishTimer);
-      syncPublishTimer = setTimeout(_doPublish, SYNC_PUB_DEBOUNCE_MS);
-    }
-    function _doPublish() {
-      if (!syncMeta || !syncMeta.gistId) return;
-      if (syncPublishing) return;
-      syncPublishing = true;
-      state._updatedAt = syncNowTs();
-      syncLastSeenTs = state._updatedAt;
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
-      syncSetStatus('pending', 'A enviar…');
-      writeGist(syncMeta.gistId, state)
-        .then(function () {
-          syncReady = true;
-          syncSetStatus('ok', 'Ligado · a sincronizar automaticamente');
-          syncUpdateBtn();
-        })
-        .catch(function (e) {
-          syncSetStatus('err', String(e.message || e));
-          syncUpdateBtn();
-        })
-        .finally(function () { syncPublishing = false; });
-    }
-
-    /* ---------- pull ---------- */
-    function syncPullOnce(quiet) {
-      if (!syncMeta || !syncMeta.gistId) return Promise.resolve();
-      return readGistContent(syncMeta.gistId).then(function (incoming) {
+    /* ---------- pull (silencioso, substitui se mais recente) ---------- */
+    function cloudPull(quiet) {
+      if (!cloudGistId) return Promise.resolve();
+      return cloudRead(cloudGistId).then(function (incoming) {
         if (!incoming) return;
         const incTs = incoming._updatedAt || 0;
-        if (incTs && incTs === syncLastSeenTs) return;     // anti-loop
-        const merged = syncMergeIncoming(state, incoming);
-        if (!merged) return;                                 // não há nada mais novo
-        state = merged;
+        if (incTs && incTs === cloudLastSeenTs) return;       // sem mudanças
+        const locTs = state._updatedAt || 0;
+        if (incTs && incTs <= locTs) return;                   // local é mais recente
+        // A NUVEL É A FONTE DE VERDADE: substitui totalmente.
+        state = Object.assign(defaultState(), incoming);
+        if (!state.viewMode) state.viewMode = detectDeviceViewMode();
+        if (state.hydrationDate !== todayStr()) { state.hydrationDate = todayStr(); state.drinksToday = []; }
+        if (!Array.isArray(state.weightLogs)) state.weightLogs = [];
+        cloudLastSeenTs = incTs;
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
         if (typeof renderAll === 'function') renderAll();
-        if (!quiet) syncSetStatus('ok', 'Atualizado a partir do outro aparelho');
-        syncUpdateBtn();
+        cloudSetStatus('ok', 'Ligado à nuvem');
       }).catch(function (e) {
-        if (!quiet) syncSetStatus('err', String(e.message || e));
-      });
-    }
-    function syncStartPolling() {
-      if (syncPollTimer) clearInterval(syncPollTimer);
-      syncPullOnce(true);
-      syncPollTimer = setInterval(function () { syncPullOnce(true); }, SYNC_POLL_MS);
-      document.addEventListener('visibilitychange', function () {
-        if (!document.hidden && syncMeta && syncMeta.gistId) syncPullOnce(true);
+        if (!quiet) cloudSetStatus('err', String(e.message || e));
       });
     }
 
-    /* ---------- merge ---------- */
-    function syncMergeIncoming(local, incoming) {
-      const incTs = incoming._updatedAt || 0;
-      const locTs = local._updatedAt  || 0;
-      if (incTs <= locTs) return null;
-      const merged = Object.assign({}, local, incoming);
-      merged.history    = mergeByIdArray(local.history,    incoming.history);
-      merged.weightLogs = mergeByIdArray(local.weightLogs, incoming.weightLogs);
-      merged.drinksToday = Array.isArray(incoming.drinksToday)
-        ? incoming.drinksToday
-        : (Array.isArray(local.drinksToday) ? local.drinksToday : []);
-      if (merged.hydrationDate !== todayStr()) {
-        merged.hydrationDate = todayStr();
-        merged.drinksToday = [];
-      }
-      merged._updatedAt = incTs;
-      return merged;
+    /* ---------- push (debounced, após cada alteração local) ---------- */
+    function cloudPush() {
+      if (!cloudGistId) return;
+      if (cloudPushing) { cloudPushTimer = setTimeout(cloudDoPush, CLOUD_PUSH_DEBOUNCE_MS); return; }
+      if (cloudPushTimer) clearTimeout(cloudPushTimer);
+      cloudPushTimer = setTimeout(cloudDoPush, CLOUD_PUSH_DEBOUNCE_MS);
     }
-    function mergeByIdArray(a, b) {
-      a = Array.isArray(a) ? a : []; b = Array.isArray(b) ? b : [];
-      const map = {};
-      a.forEach(function (x) { if (x && x.id != null) map[x.id] = x; });
-      b.forEach(function (x) {
-        if (x && x.id == null) return;
-        const prev = map[x.id];
-        if (!prev) { map[x.id] = x; return; }
-        const pT = prev.at || prev._ts || 0;
-        const nT = x.at   || x._ts   || 0;
-        map[x.id] = (nT >= pT) ? x : prev;
-      });
-      return Object.values(map).sort(function (u, v) {
-        return (u.at || u.start || 0) - (v.at || v.start || 0);
-      });
+    function cloudDoPush() {
+      if (!cloudGistId) return;
+      if (cloudPushing) return;
+      cloudPushing = true;
+      state._updatedAt = Date.now();
+      cloudLastSeenTs = state._updatedAt;
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+      cloudWrite(cloudGistId, state)
+        .then(function () {
+          cloudReady = true;
+          cloudSetStatus('ok', 'Ligado à nuvem');
+        })
+        .catch(function (e) {
+          cloudSetStatus('err', String(e.message || e));
+        })
+        .finally(function () { cloudPushing = false; });
     }
 
-    /* ---------- ações do modal (simplificadas) ---------- */
-    // "Este aparelho tem os dados bons" -> cria a sala se não existir,
-    //   e escreve o estado local por cima da nuvem.
-    function syncISource() {
-      if (!getGistToken()) { showToast('Cola primeiro o token do GitHub.'); return; }
-      syncShowActivePane();
-      syncSetStatus('pending', 'A enviar os dados deste aparelho…');
-      findSyncGist().then(function (id) {
-        if (id) {
-          syncSetStatus('pending', 'A substituir os dados da nuvem…');
-          // a sala já existe: sobrescreve com o estado local
-          syncMeta = { gistId: id, lastSeenTs: syncNowTs(), role: 'source' };
-          saveSyncMeta(syncMeta);
-          return _doPushOverwrite().then(function () { return id; });
-        } else {
-          // cria a sala nova com o estado local
-          return createSyncGist().then(function (newId) {
-            syncMeta = { gistId: newId, lastSeenTs: syncNowTs(), role: 'source' };
-            saveSyncMeta(syncMeta);
-            return newId;
-          });
-        }
-      }).then(function (id) {
-        syncReady = true;
-        syncStartPolling();
-        syncUpdateBtn();
-        refreshSyncModalView();
-        showToast('Pronto. Os outros aparelhos vão receber estes dados.');
-      }).catch(function (e) {
-        syncSetStatus('err', String(e.message || e));
-        showToast('Erro: ' + (e.message || e));
-      });
+    /* ---------- polling + foco ---------- */
+    function cloudStartPolling() {
+      if (cloudPollTimer) clearInterval(cloudPollTimer);
+      cloudPull(true);
+      cloudPollTimer = setInterval(function () { cloudPull(true); }, CLOUD_POLL_MS);
     }
-    // "Este aparelho vai receber da nuvem" -> liga-se à sala e
-    //   substitui o estado local pelo que está na nuvem.
-    function syncIReceive() {
-      if (!getGistToken()) { showToast('Cola primeiro o token do GitHub.'); return; }
-      syncShowActivePane();
-      syncSetStatus('pending', 'A buscar os dados da nuvem…');
-      findSyncGist().then(function (id) {
-        if (!id) throw new Error('Ainda não há sala. Vai primeiro ao aparelho que tem os dados bons e carrega em "Este aparelho tem os dados bons".');
-        syncSetStatus('pending', 'A descarregar o estado…');
-        return readGistContent(id).then(function (incoming) {
-          if (!incoming) throw new Error('A sala está vazia.');
-          // substituição TOTAL (não funde) — direção explícita
-          state = Object.assign(defaultState(), incoming);
-          if (!state.viewMode) state.viewMode = detectDeviceViewMode();
-          if (state.hydrationDate !== todayStr()) { state.hydrationDate = todayStr(); state.drinksToday = []; }
-          if (!Array.isArray(state.weightLogs)) state.weightLogs = [];
-          syncLastSeenTs = state._updatedAt || syncNowTs();
-          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
-          if (typeof renderAll === 'function') renderAll();
-          syncMeta = { gistId: id, lastSeenTs: syncNowTs(), role: 'receiver' };
-          saveSyncMeta(syncMeta);
-          syncReady = true;
-          syncStartPolling();
-          syncUpdateBtn();
-          refreshSyncModalView();
-          showToast('Pronto. Este aparelho ficou com os dados bons.');
-        });
-      }).catch(function (e) {
-        syncSetStatus('err', String(e.message || e));
-        showToast('Erro: ' + (e.message || e));
-      });
+
+    /* ---------- status + botão ---------- */
+    function cloudSetStatus(kind, text) {
+      const el = document.getElementById('syncStatus');
+      const tx = document.getElementById('syncStatusText');
+      if (el) el.className = 'sync-status ' + (kind || '');
+      if (tx) tx.textContent = text || '';
     }
-    function _doPushOverwrite() {
-      state._updatedAt = syncNowTs();
-      syncLastSeenTs = state._updatedAt;
-      return writeGist(syncMeta.gistId, state);
+    function cloudUpdateBtn() {
+      const btn = document.getElementById('btnSync');
+      const lab = document.getElementById('syncBtnLabel');
+      if (!btn || !lab) return;
+      btn.className = 'pill-btn';
+      if (!getGistToken()) { lab.textContent = 'Nuvem'; btn.classList.add('sync-off'); return; }
+      if (!cloudReady) { lab.textContent = 'Nuvem…'; btn.classList.add('sync-pending'); return; }
+      lab.textContent = 'Nuvem OK'; btn.classList.add('sync-on');
     }
-    function leaveSyncRoom() {
-      if (syncPollTimer) { clearInterval(syncPollTimer); syncPollTimer = null; }
-      syncMeta = null;
-      syncReady = false;
-      saveSyncMeta(null);
-      syncUpdateBtn();
-      refreshSyncModalView();
-      showToast('Desligado. Os dados continuam neste aparelho.');
-    }
-    function syncPushNow() {
-      if (!syncMeta) return;
-      if (syncPublishTimer) { clearTimeout(syncPublishTimer); syncPublishTimer = null; }
-      _doPushOverwrite().then(function () {
-        syncReady = true;
-        syncSetStatus('ok', 'Enviado');
-        syncUpdateBtn();
-        showToast('Enviado.');
-      }).catch(function (e) {
-        syncSetStatus('err', String(e.message || e));
-        showToast('Erro: ' + (e.message || e));
-      });
-    }
-    function syncPullNow() {
-      if (!syncMeta) return;
-      syncPullOnce(false).then(function () { showToast('Buscado.'); });
-    }
-    function syncShowActivePane() {
-      const setup = document.getElementById('syncSetupPane');
-      const active = document.getElementById('syncActivePane');
-      if (setup) setup.style.display = 'none';
-      if (active) active.style.display = 'block';
-    }
-    function refreshSyncModalView() {
-      const setup = document.getElementById('syncSetupPane');
-      const active = document.getElementById('syncActivePane');
-      const tkPane = document.getElementById('syncTokenPane');
-      const rolePane = document.getElementById('syncRolePane');
-      const tkInput = document.getElementById('syncTokenInput');
-      const hasToken = !!getGistToken();
-      if (tkInput && hasToken) tkInput.value = '';
-      if (syncMeta && syncMeta.gistId) {
-        if (setup) setup.style.display = 'none';
-        if (active) active.style.display = 'block';
-        if (syncReady) syncSetStatus('ok', 'Ligado · a sincronizar automaticamente');
-        else syncSetStatus('pending', 'A ligar…');
-      } else {
-        if (setup) setup.style.display = 'block';
-        if (active) active.style.display = 'none';
-        if (tkPane) tkPane.style.display = hasToken ? 'none' : 'block';
-        if (rolePane) rolePane.style.display = hasToken ? 'block' : 'none';
-      }
-    }
-    function saveSyncToken() {
+
+    /* ---------- gestão do token ---------- */
+    function cloudSaveToken() {
       const inp = document.getElementById('syncTokenInput');
       const v = (inp && inp.value || '').trim();
       if (!v) { showToast('Cola o token primeiro.'); return; }
-      if (!/^ghp_[A-Za-z0-9]{20,}$/.test(v)) { showToast('Token não parece válido (devia começar por ghp_).'); return; }
+      if (!/^ghp_[A-Za-z0-9]{20,}$/.test(v)) { showToast('Token inválido (devia começar por ghp_).'); return; }
       localStorage.setItem(GIST_TOKEN_KEY, v);
-      inp.value = '';
-      showToast('Token guardado neste aparelho.');
-      refreshSyncModalView();
+      if (inp) inp.value = '';
+      showToast('Token guardado.');
+      cloudBootstrap();   // tenta ligar agora
     }
-    function forgetSyncToken() {
+    function cloudForgetToken() {
       localStorage.removeItem(GIST_TOKEN_KEY);
-      if (syncPollTimer) { clearInterval(syncPollTimer); syncPollTimer = null; }
-      syncMeta = null; syncReady = false; saveSyncMeta(null);
-      refreshSyncModalView();
-      syncUpdateBtn();
-      showToast('Token apagado deste aparelho.');
+      saveCloudMeta(null);
+      if (cloudPollTimer) { clearInterval(cloudPollTimer); cloudPollTimer = null; }
+      cloudGistId = null; cloudReady = false;
+      cloudRefreshModal();
+      cloudUpdateBtn();
+      showToast('Token apagado.');
     }
 
-    /* ---------- hook ao saveState ---------- */
-    let __syncSaveWrapped = false;
-    function wrapSaveState() {
-      if (__syncSaveWrapped) return;
-      __syncSaveWrapped = true;
+    /* ---------- arranque da nuvem ---------- */
+    // Chamar no boot. Se houver token: procura/cria o gist, lê, liga.
+    function cloudBootstrap() {
+      cloudRefreshModal();
+      cloudUpdateBtn();
+      if (!getGistToken()) return;
+      const meta = cloudMeta();
+      if (meta && meta.gistId) {
+        cloudGistId = meta.gistId;
+        cloudPull(false).then(function () {
+          cloudReady = true;
+          cloudStartPolling();
+          cloudUpdateBtn();
+          cloudRefreshModal();
+        }).catch(function () { cloudUpdateBtn(); });
+        return;
+      }
+      // sem meta: descobrir ou criar gist
+      cloudSetStatus('pending', 'A ligar à nuvem…');
+      cloudFindGist().then(function (id) {
+        if (id) {
+          cloudGistId = id;
+          saveCloudMeta({ gistId: id });
+          return cloudPull(false).then(function () {
+            cloudReady = true; cloudStartPolling(); cloudUpdateBtn(); cloudRefreshModal();
+          });
+        }
+        // primeiro aparelho: cria o gist com o estado local atual
+        cloudSetStatus('pending', 'A criar sala na nuvem…');
+        return cloudCreateGist().then(function (newId) {
+          cloudGistId = newId;
+          saveCloudMeta({ gistId: newId });
+          cloudReady = true;
+          cloudStartPolling();
+          cloudUpdateBtn();
+          cloudRefreshModal();
+        });
+      }).catch(function (e) {
+        cloudSetStatus('err', String(e.message || e));
+        cloudUpdateBtn();
+      });
+    }
+
+    /* ---------- refresh do modal ---------- */
+    function cloudRefreshModal() {
+      const setup = document.getElementById('syncSetupPane');
+      const active = document.getElementById('syncActivePane');
+      const tkPane = document.getElementById('syncTokenPane');
+      const tkInput = document.getElementById('syncTokenInput');
+      const hasToken = !!getGistToken();
+      if (tkInput && hasToken) tkInput.value = '';
+      if (hasToken && cloudReady) {
+        // ligado à nuvem: mostra o painel de estado
+        if (setup) setup.style.display = 'none';
+        if (active) active.style.display = 'block';
+        cloudSetStatus('ok', 'Ligado à nuvem');
+      } else {
+        // ainda não ligado: mostra o painel de setup (token)
+        if (setup) setup.style.display = 'block';
+        if (active) active.style.display = 'none';
+        if (tkPane) tkPane.style.display = 'block';
+      }
+    }
+    // compat: openModal chama isto
+    function refreshSyncModalView() { cloudRefreshModal(); }
+
+    /* ---------- hook: saveState também faz push ---------- */
+    let __cloudSaveWrapped = false;
+    function cloudWrapSave() {
+      if (__cloudSaveWrapped) return;
+      __cloudSaveWrapped = true;
       const originalSave = saveState;
       saveState = function () {
         const r = originalSave.apply(this, arguments);
-        if (syncMeta && syncMeta.gistId) syncPublish();
+        if (cloudGistId) cloudPush();
         return r;
       };
+      // também repuxar ao voltar à app
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && cloudGistId) cloudPull(true);
+      });
     }
-
-    /* ---------- arranque ---------- */
     function initSync() {
-      const meta = loadSyncMeta();
-      if (meta && meta.gistId && getGistToken()) {
-        syncMeta = meta;
-        syncPullOnce(false).then(function () {
-          syncReady = true;
-          syncStartPolling();
-          syncUpdateBtn();
-        }).catch(function () { syncUpdateBtn(); });
-      }
-      wrapSaveState();
-      syncUpdateBtn();
+      cloudWrapSave();
+      cloudBootstrap();
       const origOpen = window.openModal;
       if (typeof origOpen === 'function') {
         window.openModal = function (id) {
           const r = origOpen.apply(this, arguments);
-          if (id === 'syncModal') refreshSyncModalView();
+          if (id === 'syncModal') cloudRefreshModal();
           return r;
         };
       }
