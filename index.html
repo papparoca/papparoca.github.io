@@ -2129,7 +2129,7 @@
     <button class="pill-btn sync-off" id="btnSync" onclick="openModal('syncModal')">
       <span class="sync-dot"></span><span id="syncBtnLabel">Nuvem</span>
     </button>
-    <span style="margin-left:auto;font-size:0.6rem;color:var(--muted);opacity:.5;align-self:center;letter-spacing:.05em;" title="Versão da app (muda a cada update). Se o número não mudar após um refresh, o navegador está a servir a versão em cache — faz Ctrl+Shift+R (recarga dura).">v3</span>
+    <span style="margin-left:auto;font-size:0.6rem;color:var(--muted);opacity:.5;align-self:center;letter-spacing:.05em;" title="Versão da app (muda a cada update). Se o número não mudar após um refresh, o navegador está a servir a versão em cache — faz Ctrl+Shift+R (recarga dura).">v4</span>
   </div>
 
   <!-- Modal: Escolher como Quebrar Jejum (2 opções) -->
@@ -2653,22 +2653,75 @@
       });
     }
 
-    /* ---------- pull (silencioso, a nuvem ganha SEMPRE) ---------- */
-    // Cloud-first: a nuvem é a fonte de verdade. Se a versão da nuvem
-    // for diferente da última que vimos, substitui o estado local.
-    // Só há anti-loop (não reaplicar o que acabámos de pushar).
+    /* ---------- merge (por refeição: união de fotos, nota não-vazia ganha) ---------- */
+    // Cloud-first MAS sem perder dados: a nuvem é a base, mas as fotos
+    // e descrições que só existem num aparelho são preservadas (união).
+    function cloudMerge(local, incoming) {
+      const merged = Object.assign({}, defaultState(), incoming);
+      merged.history    = mergeMeals(local.history,    incoming.history);
+      merged.weightLogs  = mergeByIdArray(local.weightLogs, incoming.weightLogs);
+      return merged;
+    }
+    function mergeMeals(a, b) {
+      a = Array.isArray(a) ? a : []; b = Array.isArray(b) ? b : [];
+      const map = {};
+      a.forEach(function (m) { if (m && m.id != null) map[m.id] = m; });
+      let localContributed = false;
+      b.forEach(function (m) {
+        if (!m || m.id == null) return;
+        const prev = map[m.id];
+        if (!prev) { map[m.id] = m; return; }
+        // união de fotos (dedupe por conteúdo)
+        const photos = (prev.photos || []).slice();
+        (m.photos || []).forEach(function (p) {
+          if (photos.indexOf(p) === -1) photos.push(p);
+        });
+        if (photos.length > (prev.photos || []).length) localContributed = true;
+        // nota: a não-vazia ganha; empate -> incoming (nuvem)
+        let note = prev.note || '';
+        if (m.note && m.note.trim()) note = m.note;
+        map[m.id] = Object.assign({}, prev, m, { photos: photos, note: note });
+      });
+      const arr = Object.values(map).sort(function (x, y) { return (y.start || 0) - (x.start || 0); });
+      arr._localContributed = localContributed;
+      return arr;
+    }
+    function mergeByIdArray(a, b) {
+      a = Array.isArray(a) ? a : []; b = Array.isArray(b) ? b : [];
+      const map = {};
+      a.forEach(function (x) { if (x && x.id != null) map[x.id] = x; });
+      let localContributed = false;
+      b.forEach(function (x) {
+        if (!x || x.id == null) return;
+        const prev = map[x.id];
+        if (!prev) { map[x.id] = x; return; }
+        const pT = prev.at || prev._ts || 0;
+        const nT = x.at   || x._ts   || 0;
+        if (nT >= pT) map[x.id] = x;
+        else localContributed = true;   // local mais recente que nuvem
+      });
+      const arr = Object.values(map).sort(function (u, v) {
+        return (u.at || u.start || 0) - (v.at || v.start || 0);
+      });
+      arr._localContributed = localContributed;
+      return arr;
+    }
+
+    /* ---------- pull (silencioso, funde sem perder fotos) ---------- */
+    // Cloud-first com merge: a nuvem é a base, mas fotos/notas que só
+    // existem localmente são preservadas (união). Se o merge revelar que
+    // o local tinha dados que a nuvem não tinha, empurra de volta para
+    // reconciliar — assim a foto do telemóvel sobe para o PC.
     function cloudPull(quiet, force) {
       if (!cloudGistId) return Promise.resolve();
-      // Se há push pendente (edições locais por sair), NÃO pullar agora —
-      // as edições locais vão para a nuvem dentro de ~1s e depois pullamos.
-      // force=true ignora isto (usado no boot, em que ainda não há edições).
+      // Se há push pendente (edições locais por sair), NÃO pullar agora.
       if (!force && (cloudPushing || cloudPushTimer)) return Promise.resolve();
       return cloudRead(cloudGistId).then(function (incoming) {
         if (!incoming) return;
         const incTs = incoming._updatedAt || 0;
-        if (incTs && incTs === cloudLastSeenTs) return;       // anti-loop: já vimos esta versão
-        // A NUVEM É A FONTE DE VERDADE: substitui totalmente o local.
-        state = Object.assign(defaultState(), incoming);
+        if (incTs && incTs === cloudLastSeenTs) return;       // anti-loop
+        const before = state;
+        state = cloudMerge(before, incoming);
         if (!state.viewMode) state.viewMode = detectDeviceViewMode();
         if (state.hydrationDate !== todayStr()) { state.hydrationDate = todayStr(); state.drinksToday = []; }
         if (!Array.isArray(state.weightLogs)) state.weightLogs = [];
@@ -2677,6 +2730,16 @@
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
         if (typeof renderAll === 'function') renderAll();
         if (!quiet) cloudSetStatus('ok', 'Ligado à nuvem');
+        // Reconciliar: se o local tinha fotos/notas que a nuvem não tinha,
+        // empurrar o estado fundido de volta para a nuvem.
+        const histContrib = !!(state.history && state.history._localContributed);
+        const wlContrib   = !!(state.weightLogs && state.weightLogs._localContributed);
+        if (histContrib || wlContrib) {
+          // limpar flags antes de pushar
+          if (state.history) delete state.history._localContributed;
+          if (state.weightLogs) delete state.weightLogs._localContributed;
+          cloudPush();
+        }
       }).catch(function (e) {
         if (!quiet) cloudSetStatus('err', String(e.message || e));
       });
