@@ -3682,7 +3682,13 @@
         return;
       }
 
-      list.innerHTML = state.history.map(function (item) {
+      // Ordenar por start descendente (mais recente primeiro) — defesa
+      // contra arrays desordenados vindos da nuvem ou de migrações.
+      const ordered = state.history.slice().sort(function (a, b) {
+        return (b.start || 0) - (a.start || 0);
+      });
+
+      list.innerHTML = ordered.map(function (item) {
         const photos = Array.isArray(item.photos) ? item.photos : (item.photo ? [item.photo] : []);
         const thumbsHtml = photos.map(function (src, idx) {
           return '<img class="history-thumb" src="' + src + '" alt="Foto ' + (idx + 1) + '" onclick="openLightbox(' + item.id + ',' + idx + ')" />';
