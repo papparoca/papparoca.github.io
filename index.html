@@ -2796,9 +2796,11 @@
     //   e escreve o estado local por cima da nuvem.
     function syncISource() {
       if (!getGistToken()) { showToast('Cola primeiro o token do GitHub.'); return; }
+      syncShowActivePane();
       syncSetStatus('pending', 'A enviar os dados deste aparelho…');
       findSyncGist().then(function (id) {
         if (id) {
+          syncSetStatus('pending', 'A substituir os dados da nuvem…');
           // a sala já existe: sobrescreve com o estado local
           syncMeta = { gistId: id, lastSeenTs: syncNowTs(), role: 'source' };
           saveSyncMeta(syncMeta);
@@ -2826,9 +2828,11 @@
     //   substitui o estado local pelo que está na nuvem.
     function syncIReceive() {
       if (!getGistToken()) { showToast('Cola primeiro o token do GitHub.'); return; }
+      syncShowActivePane();
       syncSetStatus('pending', 'A buscar os dados da nuvem…');
       findSyncGist().then(function (id) {
         if (!id) throw new Error('Ainda não há sala. Vai primeiro ao aparelho que tem os dados bons e carrega em "Este aparelho tem os dados bons".');
+        syncSetStatus('pending', 'A descarregar o estado…');
         return readGistContent(id).then(function (incoming) {
           if (!incoming) throw new Error('A sala está vazia.');
           // substituição TOTAL (não funde) — direção explícita
@@ -2882,6 +2886,12 @@
     function syncPullNow() {
       if (!syncMeta) return;
       syncPullOnce(false).then(function () { showToast('Buscado.'); });
+    }
+    function syncShowActivePane() {
+      const setup = document.getElementById('syncSetupPane');
+      const active = document.getElementById('syncActivePane');
+      if (setup) setup.style.display = 'none';
+      if (active) active.style.display = 'block';
     }
     function refreshSyncModalView() {
       const setup = document.getElementById('syncSetupPane');
