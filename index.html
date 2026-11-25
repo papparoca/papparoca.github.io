@@ -2129,7 +2129,7 @@
     <button class="pill-btn sync-off" id="btnSync" onclick="openModal('syncModal')">
       <span class="sync-dot"></span><span id="syncBtnLabel">Nuvem</span>
     </button>
-    <span style="margin-left:auto;font-size:0.6rem;color:var(--muted);opacity:.5;align-self:center;letter-spacing:.05em;" title="Versão da app (muda a cada update). Se o número não mudar após um refresh, o navegador está a servir a versão em cache — faz Ctrl+Shift+R (recarga dura).">v4</span>
+    <span style="margin-left:auto;font-size:0.6rem;color:var(--muted);opacity:.5;align-self:center;letter-spacing:.05em;" title="Versão da app (muda a cada update). Se o número não mudar após um refresh, o navegador está a servir a versão em cache — faz Ctrl+Shift+R (recarga dura).">v5</span>
   </div>
 
   <!-- Modal: Escolher como Quebrar Jejum (2 opções) -->
@@ -2672,11 +2672,22 @@
         const prev = map[m.id];
         if (!prev) { map[m.id] = m; return; }
         // união de fotos (dedupe por conteúdo)
-        const photos = (prev.photos || []).slice();
-        (m.photos || []).forEach(function (p) {
+        const incPhotos = m.photos || [];
+        const locPhotos = prev.photos || [];
+        const photos = locPhotos.slice();
+        let addedFromLocal = 0;
+        incPhotos.forEach(function (p) {
           if (photos.indexOf(p) === -1) photos.push(p);
         });
-        if (photos.length > (prev.photos || []).length) localContributed = true;
+        // O local "contribuiu" se tem fotos que o incoming não tinha.
+        // Ou se tem uma nota não-vazia e o incoming tem nota vazia.
+        // Ou se o local tem mais fotos que o incoming.
+        if (locPhotos.length > incPhotos.length) localContributed = true;
+        locPhotos.forEach(function (p) {
+          if (incPhotos.indexOf(p) === -1) addedFromLocal++;
+        });
+        if (addedFromLocal > 0) localContributed = true;
+        if ((prev.note || '').trim() && !(m.note || '').trim()) localContributed = true;
         // nota: a não-vazia ganha; empate -> incoming (nuvem)
         let note = prev.note || '';
         if (m.note && m.note.trim()) note = m.note;
