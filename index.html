@@ -2129,7 +2129,7 @@
     <button class="pill-btn sync-off" id="btnSync" onclick="openModal('syncModal')">
       <span class="sync-dot"></span><span id="syncBtnLabel">Nuvem</span>
     </button>
-    <span style="margin-left:auto;font-size:0.6rem;color:var(--muted);opacity:.5;align-self:center;letter-spacing:.05em;" title="Versão da app (muda a cada update). Se o número não mudar após um refresh, o navegador está a servir a versão em cache — faz Ctrl+Shift+R (recarga dura).">v5</span>
+    <span style="margin-left:auto;font-size:0.6rem;color:var(--muted);opacity:.5;align-self:center;letter-spacing:.05em;" title="Versão da app (muda a cada update). Se o número não mudar após um refresh, o navegador está a servir a versão em cache — faz Ctrl+Shift+R (recarga dura).">v6</span>
   </div>
 
   <!-- Modal: Escolher como Quebrar Jejum (2 opções) -->
@@ -2564,15 +2564,18 @@
     const GIST_DESC   = 'papparoca-cloud-do-not-delete';
     const GIST_FILE   = 'papparoca_state.json';
     const GIST_META_KEY = 'papparoca_gist_meta';   // { gistId }
-    const CLOUD_PUSH_DEBOUNCE_MS = 1200;
-    const CLOUD_POLL_MS = 10000;
+    const WRITE_DEBOUNCE_MS = 800;
 
     let cloudGistId = null;       // id do gist em uso (lido do meta)
-    let cloudPollTimer = null;
-    let cloudPushTimer = null;
-    let cloudPushing = false;
-    let cloudLastSeenTs = 0;     // _updatedAt da última versão que vimos da nuvem
+    let cloudWriting = false;     // escrita em curso (ler-fundir-escrever)
+    let writeDebounceTimer = null;
+    let writeRetryTimer = null;
+    let cloudLastSeenTs = 0;      // _updatedAt da última versão vista/escrita
+    let cloudSyncedOnce = false;
     let cloudReady = false;
+    // Este aparelho já tinha dados reais antes de ligar à nuvem?
+    // (só funde o cache local no boot se SIM — nunca fundir seeds de browser novo)
+    const HAD_LOCAL_CACHE = (() => { try { return !!localStorage.getItem(STORAGE_KEY); } catch (e) { return false; } })();
 
     function getGistToken() { return (localStorage.getItem(GIST_TOKEN_KEY) || '').trim(); }
     function cloudMeta() {
@@ -2653,150 +2656,142 @@
       });
     }
 
-    /* ---------- merge (por refeição: união de fotos, nota não-vazia ganha) ---------- */
-    // Cloud-first MAS sem perder dados: a nuvem é a base, mas as fotos
-    // e descrições que só existem num aparelho são preservadas (união).
-    function cloudMerge(local, incoming) {
-      const merged = Object.assign({}, defaultState(), incoming);
-      merged.history    = mergeMeals(local.history,    incoming.history);
-      merged.weightLogs  = mergeByIdArray(local.weightLogs, incoming.weightLogs);
-      return merged;
-    }
-    function mergeMeals(a, b) {
-      a = Array.isArray(a) ? a : []; b = Array.isArray(b) ? b : [];
-      const map = {};
-      a.forEach(function (m) { if (m && m.id != null) map[m.id] = m; });
-      let localContributed = false;
-      b.forEach(function (m) {
-        if (!m || m.id == null) return;
-        const prev = map[m.id];
-        if (!prev) { map[m.id] = m; return; }
-        // união de fotos (dedupe por conteúdo)
-        const incPhotos = m.photos || [];
-        const locPhotos = prev.photos || [];
-        const photos = locPhotos.slice();
-        let addedFromLocal = 0;
-        incPhotos.forEach(function (p) {
-          if (photos.indexOf(p) === -1) photos.push(p);
-        });
-        // O local "contribuiu" se tem fotos que o incoming não tinha.
-        // Ou se tem uma nota não-vazia e o incoming tem nota vazia.
-        // Ou se o local tem mais fotos que o incoming.
-        if (locPhotos.length > incPhotos.length) localContributed = true;
-        locPhotos.forEach(function (p) {
-          if (incPhotos.indexOf(p) === -1) addedFromLocal++;
-        });
-        if (addedFromLocal > 0) localContributed = true;
-        if ((prev.note || '').trim() && !(m.note || '').trim()) localContributed = true;
-        // nota: a não-vazia ganha; empate -> incoming (nuvem)
-        let note = prev.note || '';
-        if (m.note && m.note.trim()) note = m.note;
-        map[m.id] = Object.assign({}, prev, m, { photos: photos, note: note });
-      });
-      const arr = Object.values(map).sort(function (x, y) { return (y.start || 0) - (x.start || 0); });
-      arr._localContributed = localContributed;
-      return arr;
-    }
-    function mergeByIdArray(a, b) {
+    /* ============================================================
+       ARQUITECTURA DE RAIZ (v6) — "A NUVEM É O DISCO"
+       Uma só regra, zero excepções:
+       1. ABRIR A APP  -> ler a nuvem + RECONCILIAR (1 escrita):
+          o que este aparelho tem e o que a nuvem têm ficam IGUAIS.
+          Sempre. A cada abertura. É isto que garante "o que se vê
+          num lado vê-se no outro" sem carregar em nada.
+       2. QUALQUER ALTERAÇÃO -> ler-fundir-escrever: a escrita funde
+          com o que está na nuvem ANTES de escrever, por isso é
+          IMPOSSÍVEL perder fotos ou registos (união por id).
+       3. localStorage = só cache de arranque. Nunca fonte de verdade.
+       4. Sem polling, sem botões de sincronizar. Amigos: cada um usa
+          o SEU token -> o SEU gist privado -> só os SEUS dados.
+       ============================================================ */
+
+    /* ---------- união por id (o único merge que existe) ----------
+       Refeições: fotos = união (dedupe), nota = não-vazia ganha,
+       resto = local (quem escreve ganha). Pesos: mais recente ganha. */
+    function unionById(a, b, isMeals) {
       a = Array.isArray(a) ? a : []; b = Array.isArray(b) ? b : [];
       const map = {};
       a.forEach(function (x) { if (x && x.id != null) map[x.id] = x; });
-      let localContributed = false;
       b.forEach(function (x) {
         if (!x || x.id == null) return;
         const prev = map[x.id];
         if (!prev) { map[x.id] = x; return; }
-        const pT = prev.at || prev._ts || 0;
-        const nT = x.at   || x._ts   || 0;
-        if (nT >= pT) map[x.id] = x;
-        else localContributed = true;   // local mais recente que nuvem
+        if (isMeals) {
+          const photos = (prev.photos || []).slice();
+          (x.photos || []).forEach(function (p) { if (photos.indexOf(p) === -1) photos.push(p); });
+          const note = (prev.note && prev.note.trim()) ? prev.note : (x.note || '');
+          map[x.id] = Object.assign({}, x, prev, { photos: photos, note: note });
+        } else {
+          map[x.id] = ((x.at || 0) > (prev.at || 0)) ? x : prev;
+        }
       });
-      const arr = Object.values(map).sort(function (u, v) {
-        return (u.at || u.start || 0) - (v.at || v.start || 0);
-      });
-      arr._localContributed = localContributed;
-      return arr;
+      return isMeals
+        ? Object.values(map).sort(function (u, v) { return (v.start || 0) - (u.start || 0); })
+        : Object.values(map).sort(function (u, v) { return (u.at || 0) - (v.at || 0); });
+    }
+    // Funde o estado local (quem escreve) com o que está na nuvem.
+    function mergeWrite(local, incoming) {
+      const merged = Object.assign({}, defaultState(), incoming, local);
+      merged.history    = unionById(local.history,    incoming.history, true);
+      merged.weightLogs = unionById(local.weightLogs, incoming.weightLogs, false);
+      return merged;
+    }
+    function normalizeState(s) {
+      if (!s.viewMode) s.viewMode = detectDeviceViewMode();
+      if (s.hydrationDate !== todayStr()) { s.hydrationDate = todayStr(); s.drinksToday = []; }
+      if (!Array.isArray(s.weightLogs)) s.weightLogs = [];
+      if (!Array.isArray(s.history)) s.history = [];
+      return s;
     }
 
-    /* ---------- pull (silencioso, funde sem perder fotos) ---------- */
-    // Cloud-first com merge: a nuvem é a base, mas fotos/notas que só
-    // existem localmente são preservadas (união). Se o merge revelar que
-    // o local tinha dados que a nuvem não tinha, empurra de volta para
-    // reconciliar — assim a foto do telemóvel sobe para o PC.
-    function cloudPull(quiet, force) {
-      if (!cloudGistId) return Promise.resolve();
-      // Se há push pendente (edições locais por sair), NÃO pullar agora.
-      if (!force && (cloudPushing || cloudPushTimer)) return Promise.resolve();
+    /* ---------- ler a nuvem e mostrar (foco / botão) ---------- */
+    function cloudSyncNow(quiet) {
+      if (!cloudGistId || cloudWriting) return Promise.resolve();
       return cloudRead(cloudGistId).then(function (incoming) {
         if (!incoming) return;
-        const incTs = incoming._updatedAt || 0;
-        if (incTs && incTs === cloudLastSeenTs) return;       // anti-loop
-        const before = state;
-        state = cloudMerge(before, incoming);
-        if (!state.viewMode) state.viewMode = detectDeviceViewMode();
-        if (state.hydrationDate !== todayStr()) { state.hydrationDate = todayStr(); state.drinksToday = []; }
-        if (!Array.isArray(state.weightLogs)) state.weightLogs = [];
-        if (!Array.isArray(state.history)) state.history = [];
-        cloudLastSeenTs = incTs;
+        if (cloudSyncedOnce && (incoming._updatedAt || 0) === cloudLastSeenTs) return;  // nada mudou
+        state = normalizeState(Object.assign(defaultState(), incoming));
+        cloudLastSeenTs = state._updatedAt || 0;
+        cloudSyncedOnce = true;
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+        cloudReady = true;
         if (typeof renderAll === 'function') renderAll();
-        if (!quiet) cloudSetStatus('ok', 'Ligado à nuvem');
-        // Reconciliar: se o local tinha fotos/notas que a nuvem não tinha,
-        // empurrar o estado fundido de volta para a nuvem.
-        const histContrib = !!(state.history && state.history._localContributed);
-        const wlContrib   = !!(state.weightLogs && state.weightLogs._localContributed);
-        if (histContrib || wlContrib) {
-          // limpar flags antes de pushar
-          if (state.history) delete state.history._localContributed;
-          if (state.weightLogs) delete state.weightLogs._localContributed;
-          cloudPush();
-        }
+        cloudUpdateBtn();
+        if (!quiet) cloudSetStatus('ok', 'Nuvem: sincronizado');
       }).catch(function (e) {
         if (!quiet) cloudSetStatus('err', String(e.message || e));
       });
     }
+    // compat: botão do modal
+    function cloudPull(quiet) { return cloudSyncNow(quiet); }
 
-    /* ---------- push (debounced, após cada alteração local) ---------- */
-    function cloudPush() {
+    /* ---------- escrever na nuvem (ler-fundir-escrever) ---------- */
+    function cloudQueueWrite() {
       if (!cloudGistId) return;
-      if (cloudPushing) { cloudPushTimer = setTimeout(cloudDoPush, CLOUD_PUSH_DEBOUNCE_MS); return; }
-      if (cloudPushTimer) clearTimeout(cloudPushTimer);
-      cloudPushTimer = setTimeout(cloudDoPush, CLOUD_PUSH_DEBOUNCE_MS);
+      if (writeDebounceTimer) clearTimeout(writeDebounceTimer);
+      writeDebounceTimer = setTimeout(cloudFlushWrite, WRITE_DEBOUNCE_MS);
     }
-    function cloudDoPush() {
-      if (!cloudGistId) return;
-      if (cloudPushing) return;
-      cloudPushing = true;
-      state._updatedAt = Date.now();
-      cloudLastSeenTs = state._updatedAt;
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
-      cloudWrite(cloudGistId, state)
-        .then(function () {
-          cloudReady = true;
-          cloudSetStatus('ok', 'Ligado à nuvem');
-        })
-        .catch(function (e) {
-          cloudSetStatus('err', String(e.message || e));
-        })
-        .finally(function () { cloudPushing = false; });
+    function cloudFlushWrite() {
+      if (!cloudGistId || cloudWriting) return;
+      cloudWriting = true;
+      if (writeRetryTimer) { clearTimeout(writeRetryTimer); writeRetryTimer = null; }
+      cloudSetStatus('pending', 'A guardar na nuvem…');
+      // LER primeiro: funde com a nuvem para nunca pisar o outro aparelho
+      cloudRead(cloudGistId).then(function (incoming) {
+        const merged = normalizeState(mergeWrite(state, incoming || {}));
+        merged._updatedAt = Date.now();
+        state = merged;
+        cloudLastSeenTs = merged._updatedAt;
+        cloudSyncedOnce = true;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)); } catch (e) {}
+        return cloudWrite(cloudGistId, merged);
+      }).then(function () {
+        cloudReady = true;
+        cloudSetStatus('ok', 'Nuvem: guardado');
+        cloudUpdateBtn();
+        if (typeof renderAll === 'function') renderAll();
+      }).catch(function (e) {
+        cloudSetStatus('err', String(e.message || e));
+        writeRetryTimer = setTimeout(cloudFlushWrite, 5000);   // tentar outra vez
+      }).finally(function () { cloudWriting = false; });
     }
 
-    /* ---------- pull só ao abrir / ganhar foco (sem polling) ---------- */
-    // Cloud-first: a nuvem só é lida quando alguém realmente olha para a
-    // app — ao abrir (boot) e ao voltar à app (visibilitychange). Sem
-    // polling de fundo: zero chamadas à API quando a app está parada.
-    function cloudStartPolling() {
-      // mantém só o pull de foco; sem setInterval
-      cloudPull(true, true);
-      if (!window.__cloudFocusBound) {
-        window.__cloudFocusBound = true;
-        document.addEventListener('visibilitychange', function () {
-          if (!document.hidden && cloudGistId) cloudPull(true);
-        });
-        window.addEventListener('focus', function () {
-          if (cloudGistId) cloudPull(true);
-        });
-      }
+    /* ---------- abrir a app = ler + RECONCILIAR ---------- */
+    // Só funde o cache local se este aparelho JÁ tinha dados reais
+    // (nunca fundir defaults/seeds de um browser novo!).
+    function cloudReconcileOnBoot() {
+      if (!cloudGistId) return Promise.resolve();
+      return cloudRead(cloudGistId).then(function (incoming) {
+        const local = HAD_LOCAL_CACHE ? state : null;
+        const merged = local
+          ? normalizeState(mergeWrite(local, incoming || {}))
+          : normalizeState(Object.assign(defaultState(), incoming || {}));
+        merged._updatedAt = Date.now();
+        state = merged;
+        cloudLastSeenTs = merged._updatedAt;
+        cloudSyncedOnce = true;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)); } catch (e) {}
+        if (typeof renderAll === 'function') renderAll();
+        return cloudWrite(cloudGistId, merged);   // nuvem fica IGUAL a este aparelho
+      });
+    }
+
+    /* ---------- foco: ler (barato, sem escrever) ---------- */
+    function bindFocusRead() {
+      if (window.__cloudFocusBound) return;
+      window.__cloudFocusBound = true;
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && cloudGistId) cloudSyncNow(true);
+      });
+      window.addEventListener('focus', function () {
+        if (cloudGistId) cloudSyncNow(true);
+      });
     }
 
     /* ---------- status + botão ---------- */
@@ -2830,50 +2825,44 @@
     function cloudForgetToken() {
       localStorage.removeItem(GIST_TOKEN_KEY);
       saveCloudMeta(null);
-      if (cloudPollTimer) { clearInterval(cloudPollTimer); cloudPollTimer = null; }
+      if (writeDebounceTimer) { clearTimeout(writeDebounceTimer); writeDebounceTimer = null; }
+      if (writeRetryTimer) { clearTimeout(writeRetryTimer); writeRetryTimer = null; }
       cloudGistId = null; cloudReady = false;
       cloudRefreshModal();
       cloudUpdateBtn();
       showToast('Token apagado.');
     }
 
-    /* ---------- arranque da nuvem ---------- */
-    // Chamar no boot. Se houver token: procura/cria o gist, lê, liga.
+    /* ---------- arranque da nuvem ----------
+       Se houver token: procura/cria o gist deste utilizador e
+       RECONCILIA (ler + fundir + escrever). Depois disso, abrir a app
+       em qualquer aparelho mostra sempre o mesmo. */
     function cloudBootstrap() {
       cloudRefreshModal();
       cloudUpdateBtn();
       if (!getGistToken()) return;
       const meta = cloudMeta();
-      if (meta && meta.gistId) {
-        cloudGistId = meta.gistId;
-        cloudPull(false, true).then(function () {
+      const go = function (id) {
+        cloudGistId = id;
+        saveCloudMeta({ gistId: id });
+        return cloudReconcileOnBoot().then(function () {
           cloudReady = true;
-          cloudStartPolling();
+          bindFocusRead();
           cloudUpdateBtn();
           cloudRefreshModal();
-        }).catch(function () { cloudUpdateBtn(); });
+          cloudSetStatus('ok', 'Nuvem: tudo igual nos dois aparelhos');
+        });
+      };
+      if (meta && meta.gistId) {
+        go(meta.gistId).catch(function (e) { cloudSetStatus('err', String(e.message || e)); cloudUpdateBtn(); });
         return;
       }
-      // sem meta: descobrir ou criar gist
       cloudSetStatus('pending', 'A ligar à nuvem…');
       cloudFindGist().then(function (id) {
-        if (id) {
-          cloudGistId = id;
-          saveCloudMeta({ gistId: id });
-          return cloudPull(false, true).then(function () {
-            cloudReady = true; cloudStartPolling(); cloudUpdateBtn(); cloudRefreshModal();
-          });
-        }
-        // primeiro aparelho: cria o gist com o estado local atual
-        cloudSetStatus('pending', 'A criar sala na nuvem…');
-        return cloudCreateGist().then(function (newId) {
-          cloudGistId = newId;
-          saveCloudMeta({ gistId: newId });
-          cloudReady = true;
-          cloudStartPolling();
-          cloudUpdateBtn();
-          cloudRefreshModal();
-        });
+        if (id) return go(id);
+        // primeiro aparelho deste utilizador: cria o gist com o estado local
+        cloudSetStatus('pending', 'A criar nuvem privada…');
+        return cloudCreateGist().then(go);
       }).catch(function (e) {
         cloudSetStatus('err', String(e.message || e));
         cloudUpdateBtn();
@@ -2903,7 +2892,7 @@
     // compat: openModal chama isto
     function refreshSyncModalView() { cloudRefreshModal(); }
 
-    /* ---------- hook: saveState também faz push ---------- */
+    /* ---------- hook: qualquer alteração local escreve na nuvem ---------- */
     let __cloudSaveWrapped = false;
     function cloudWrapSave() {
       if (__cloudSaveWrapped) return;
@@ -2911,13 +2900,9 @@
       const originalSave = saveState;
       saveState = function () {
         const r = originalSave.apply(this, arguments);
-        if (cloudGistId) cloudPush();
+        if (cloudGistId) cloudQueueWrite();
         return r;
       };
-      // também repuxar ao voltar à app
-      document.addEventListener('visibilitychange', function () {
-        if (!document.hidden && cloudGistId) cloudPull(true);
-      });
     }
     function initSync() {
       cloudWrapSave();
